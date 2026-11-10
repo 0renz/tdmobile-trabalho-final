@@ -1,0 +1,101 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import '../models/user.dart';
+
+class UserService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final CollectionReference<Map<String, dynamic>> _users = FirebaseFirestore
+      .instance
+      .collection('users');
+
+  Future<UserCredential> signIn({
+    required String email,
+    required String password,
+  }) {
+    return _auth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  Future<UserCredential> signUp({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final credential = await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+
+    final user = credential.user!;
+    try {
+      await _users.doc(user.uid).set({
+        'uid': user.uid,
+        'displayName': name.trim(),
+        'email': email.trim(),
+        'photoURL': '',
+      });
+    } catch (_) {
+      // Do not leave an authenticated account without its application profile.
+      await user.delete();
+      rethrow;
+    }
+
+    return credential;
+  }
+
+Future<UserModel?> getUser() async {
+  final user = _auth.currentUser;
+
+  if (user == null) return null;
+
+  try {
+    final doc = await _users.doc(user.uid).get();
+
+    if (!doc.exists) {
+      debugPrint('Documento do usuário não encontrado: ${user.uid}');
+      return null;
+    }
+
+    return UserModel.fromSnap(doc);
+
+  } on FirebaseException catch (e) {
+    debugPrint('Erro Firestore: ${e.code}');
+    debugPrint('Mensagem: ${e.message}');
+    rethrow;
+  }
+}
+
+
+  Future<UserCredential> signInWithGitHub() async {
+    final githubProvider = GithubAuthProvider();
+    githubProvider.addScope('user:email');
+
+    final UserCredential userCredential;
+
+    if (kIsWeb) {
+      userCredential = await _auth.signInWithPopup(githubProvider);
+    } else {
+      userCredential = await _auth.signInWithProvider(githubProvider);
+    }
+
+    final user = userCredential.user;
+
+    if (user != null) {
+      await _users.doc(user.uid).set({
+        'uid': user.uid,
+        'displayName': user.displayName ?? '',
+        'email': user.email ?? '',
+        'photoURL': user.photoURL ?? '',
+      }, SetOptions(merge: true));
+    }
+
+    return userCredential;
+  }
+
+  /*Future<void> signOut() async {
+    await _auth.signOut();
+  }*/
+}
