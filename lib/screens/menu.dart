@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'chat.dart';
-import 'mapa.dart';
+import 'biblioteca_gatos.dart';
+import 'gatos.dart';
 import '../services/user_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -17,14 +17,16 @@ class _MenuOptionsState extends State<MenuOptions> {
 
   int pageIndex = 0;
   late final PageController pc;
+  final GlobalKey<GatosScreenState> gatosKey =
+      GlobalKey<GatosScreenState>();
   String userName = 'Usuário';
 
   final List<String> paginas = [
-    'Chat',
-    'Mapa',
+    'Encontrar gatos',
+    'Biblioteca de gatos',
   ];
 
-  String titulo = 'Chat';
+  String titulo = 'Encontrar gatos';
 
   @override
   void initState() {
@@ -70,6 +72,9 @@ class _MenuOptionsState extends State<MenuOptions> {
   }
 
   void selecionarPagina(int index) {
+    if (index == 0 && pageIndex != 0) {
+      gatosKey.currentState?.loadAnotherCat();
+    }
     setPaginaAtual(index);
     irParaPagina(index);
     Navigator.pop(context);
@@ -172,14 +177,14 @@ class _MenuOptionsState extends State<MenuOptions> {
                 children: [
                   _buildMenuItem(
                     index: 0,
-                    icon: Icons.chat_outlined,
-                    label: 'Chat',
+                    icon: Icons.pets_outlined,
+                    label: 'Encontrar gatos',
                     onTap: () => selecionarPagina(0),
                   ),
                   _buildMenuItem(
                     index: 1,
-                    icon: Icons.map_outlined,
-                    label: 'Mapa',
+                    icon: Icons.collections_bookmark_outlined,
+                    label: 'Biblioteca de gatos',
                     onTap: () => selecionarPagina(1),
                   ),
 
@@ -239,9 +244,9 @@ class _MenuOptionsState extends State<MenuOptions> {
         controller: pc,
         onPageChanged: setPaginaAtual,
         physics: const NeverScrollableScrollPhysics(),
-        children: const [
-          ChatScreen(),
-          MapSample(),
+        children: [
+          GatosScreen(key: gatosKey),
+          const BibliotecaGatosScreen(),
         ],
       ),
     );

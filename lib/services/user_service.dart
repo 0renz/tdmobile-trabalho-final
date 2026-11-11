@@ -95,6 +95,42 @@ Future<UserModel?> getUser() async {
     return userCredential;
   }
 
+  CollectionReference<Map<String, dynamic>> _savedCats(String uid) {
+    return _users.doc(uid).collection('savedCats');
+  }
+
+  Future<void> saveCat(String imageUrl) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('É necessário estar autenticado para guardar um gato.');
+    }
+
+    await _savedCats(user.uid).add({
+      'imageUrl': imageUrl,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> savedCatsStream() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('É necessário estar autenticado para acessar a biblioteca.');
+    }
+
+    return _savedCats(user.uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  Future<void> deleteCat(String catId) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('É necessário estar autenticado para excluir um gato.');
+    }
+
+    await _savedCats(user.uid).doc(catId).delete();
+  }
+
   /*Future<void> signOut() async {
     await _auth.signOut();
   }*/
