@@ -49,15 +49,25 @@ class BibliotecaGatosScreen extends StatelessWidget {
               child: Column(
                 children: [
                   Expanded(
-                    child: Image.network(
-                      imageUrl,
+                    child: Container(
                       width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Center(
-                          child: Text('Imagem indisponível'),
-                        );
-                      },
+                      color: Colors.grey.shade200,
+                      // contain: mostra o gato inteiro, sem cortar as bordas.
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Center(
+                            child: Text('Imagem indisponível'),
+                          );
+                        },
+                      ),
                     ),
                   ),
                   IconButton(

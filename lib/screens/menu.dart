@@ -16,9 +16,6 @@ class _MenuOptionsState extends State<MenuOptions> {
   static const Color lightPurple = Color(0xFFD1C4E9);
 
   int pageIndex = 0;
-  late final PageController pc;
-  final GlobalKey<GatosScreenState> gatosKey =
-      GlobalKey<GatosScreenState>();
   String userName = 'Usuário';
 
   final List<String> paginas = [
@@ -31,7 +28,6 @@ class _MenuOptionsState extends State<MenuOptions> {
   @override
   void initState() {
     super.initState();
-    pc = PageController(initialPage: pageIndex);
     final currentUser = FirebaseAuth.instance.currentUser;
     final displayName = currentUser?.displayName?.trim();
     if (displayName != null && displayName.isNotEmpty) {
@@ -50,12 +46,6 @@ class _MenuOptionsState extends State<MenuOptions> {
     }
   }
 
-  @override
-  void dispose() {
-    pc.dispose();
-    super.dispose();
-  }
-
   void setPaginaAtual(int index) {
     setState(() {
       pageIndex = index;
@@ -63,20 +53,10 @@ class _MenuOptionsState extends State<MenuOptions> {
     });
   }
 
-  void irParaPagina(int index) {
-    pc.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
-  }
-
   void selecionarPagina(int index) {
-    if (index == 0 && pageIndex != 0) {
-      gatosKey.currentState?.loadAnotherCat();
-    }
-    setPaginaAtual(index);
-    irParaPagina(index);
+    // Apenas troca a página: a tela de gatos é recriada ao voltar para ela
+    // (veja o body) e por isso busca um gato novo no initState.
+    if (index != pageIndex) setPaginaAtual(index);
     Navigator.pop(context);
   }
 
@@ -197,8 +177,8 @@ class _MenuOptionsState extends State<MenuOptions> {
 
                   _buildMenuItem(
                     index: -1,
-                    icon: Icons.login_outlined,
-                    label: 'Login',
+                    icon: Icons.logout_outlined,
+                    label: 'Sair',
                     onTap: sairDoAplicativo,
                   ),
                 ],
@@ -240,15 +220,13 @@ class _MenuOptionsState extends State<MenuOptions> {
         ),
       ),
 
-      body: PageView(
-        controller: pc,
-        onPageChanged: setPaginaAtual,
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          GatosScreen(key: gatosKey),
-          const BibliotecaGatosScreen(),
-        ],
-      ),
+      // Só uma tela fica na árvore por vez. Antes, o PageView descartava a
+      // tela de gatos fora de vista e a recriava com a mesma URL (o cache de
+      // imagem devolvia o mesmo gato), e o GlobalKey apontava para um estado
+      // que já não existia.
+      body: pageIndex == 0
+          ? const GatosScreen(key: ValueKey('gatos'))
+          : const BibliotecaGatosScreen(key: ValueKey('biblioteca')),
     );
   }
 

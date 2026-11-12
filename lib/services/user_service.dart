@@ -46,28 +46,26 @@ class UserService {
     return credential;
   }
 
-Future<UserModel?> getUser() async {
-  final user = _auth.currentUser;
+  Future<UserModel?> getUser() async {
+    final user = _auth.currentUser;
 
-  if (user == null) return null;
+    if (user == null) return null;
 
-  try {
-    final doc = await _users.doc(user.uid).get();
+    try {
+      final doc = await _users.doc(user.uid).get();
 
-    if (!doc.exists) {
-      debugPrint('Documento do usuário não encontrado: ${user.uid}');
-      return null;
+      if (!doc.exists) {
+        debugPrint('Documento do usuário não encontrado: ${user.uid}');
+        return null;
+      }
+
+      return UserModel.fromSnap(doc);
+    } on FirebaseException catch (e) {
+      debugPrint('Erro Firestore: ${e.code}');
+      debugPrint('Mensagem: ${e.message}');
+      rethrow;
     }
-
-    return UserModel.fromSnap(doc);
-
-  } on FirebaseException catch (e) {
-    debugPrint('Erro Firestore: ${e.code}');
-    debugPrint('Mensagem: ${e.message}');
-    rethrow;
   }
-}
-
 
   Future<UserCredential> signInWithGitHub() async {
     final githubProvider = GithubAuthProvider();
@@ -99,14 +97,22 @@ Future<UserModel?> getUser() async {
     return _users.doc(uid).collection('savedCats');
   }
 
-  Future<void> saveCat(String imageUrl) async {
+  /// URL fixa de um gato específico da Cataas (ao contrário de /cat, que
+  /// sorteia um gato diferente a cada requisição).
+  static String catImageUrl(String catId) => 'https://cataas.com/cat/$catId';
+
+  /// Guarda apenas o ID do gato no Firestore; a imagem continua hospedada na
+  /// Cataas. O ID é usado como id do documento, então guardar o mesmo gato
+  /// duas vezes não cria duplicatas.
+  Future<void> saveCat(String catId) async {
     final user = _auth.currentUser;
     if (user == null) {
       throw StateError('É necessário estar autenticado para guardar um gato.');
     }
 
-    await _savedCats(user.uid).add({
-      'imageUrl': imageUrl,
+    await _savedCats(user.uid).doc(catId).set({
+      'catId': catId,
+      'imageUrl': catImageUrl(catId),
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -130,8 +136,4 @@ Future<UserModel?> getUser() async {
 
     await _savedCats(user.uid).doc(catId).delete();
   }
-
-  /*Future<void> signOut() async {
-    await _auth.signOut();
-  }*/
 }
