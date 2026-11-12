@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../services/tag_service.dart';
 import '../services/user_service.dart';
 
 class GatosScreen extends StatefulWidget {
@@ -15,9 +16,23 @@ class GatosScreen extends StatefulWidget {
 class GatosScreenState extends State<GatosScreen> {
   static const String _apiUrl = 'https://cataas.com/cat';
 
+  final TextEditingController _wishController = TextEditingController();
+  final CatTagService _tagService = CatTagService();
+
   // ID do gato exibido. A imagem é carregada por /cat/{id}, então o gato da
   // tela é sempre o mesmo que será guardado na biblioteca.
   String? _catId;
+
+  // Tags realmente usadas na busca do gato atual (em inglês).
+  List<String> _activeTags = [];
+
+  // Aviso para o usuário (ex.: nenhuma tag encontrada, Gemini indisponível).
+  String? _statusMessage;
+
+  // Último pedido interpretado: evita chamar o Gemini de novo (e gastar cota)
+  // quando o usuário só quer "outro gato" com o mesmo texto.
+  String _interpretedWish = '';
+  List<String> _interpretedTags = [];
 
   bool _isLoading = true;
   bool _hasError = false;
@@ -35,40 +50,70 @@ class GatosScreenState extends State<GatosScreen> {
     loadAnotherCat();
   }
 
+  @override
+  void dispose() {
+    _wishController.dispose();
+    super.dispose();
+  }
+
   Future<void> loadAnotherCat() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final requestId = ++_requestId;
     setState(() {
       _isLoading = true;
       _hasError = false;
       _isSaved = false;
       _catId = null;
+      _statusMessage = null;
     });
 
     try {
-      // json=true devolve os metadados do gato sorteado (incluindo o id)
-      // em vez da imagem. "t" evita cache devolvendo sempre o mesmo gato.
-      final uri = Uri.parse(_apiUrl).replace(
-        queryParameters: {
-          'json': 'true',
-          't': DateTime.now().microsecondsSinceEpoch.toString(),
-        },
-      );
-      final response = await http.get(uri).timeout(const Duration(seconds: 20));
+      final wish = _wishController.text.trim();
+      String? warning;
+      var tags = <String>[];
 
-      if (!mounted || requestId != _requestId) return;
-
-      if (response.statusCode != 200) {
-        throw StateError('Resposta inválida da API (HTTP ${response.statusCode}).');
+      // 1) Interpretar o pedido com o Gemini (se houver texto).
+      if (wish.isNotEmpty) {
+        if (wish == _interpretedWish) {
+          tags = _interpretedTags;
+        } else {
+          try {
+            tags = await _tagService.extractTags(wish);
+            if (!mounted || requestId != _requestId) return;
+            _interpretedWish = wish;
+            _interpretedTags = tags;
+          } catch (e) {
+            if (!mounted || requestId != _requestId) return;
+            debugPrint('Erro ao interpretar o pedido: $e');
+            warning = 'Não foi possível interpretar o pedido ($e). '
+                'Mostrando um gato aleatório.';
+          }
+        }
+        if (tags.isEmpty && warning == null) {
+          warning = 'Não encontrei uma tag que combine com esse pedido. '
+              'Mostrando um gato aleatório.';
+        }
       }
 
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      final id = data is Map ? (data['id'] ?? data['_id']) : null;
-      if (id is! String || id.isEmpty) {
-        throw StateError('A API não devolveu o id do gato.');
+      // 2) Buscar o gato na Cataas, com fallback progressivo.
+      final result = await _fetchCat(tags);
+      if (!mounted || requestId != _requestId) return;
+      if (result == null) {
+        throw StateError('Não foi possível obter um gato da API.');
+      }
+
+      if (tags.isNotEmpty && result.tags.length < tags.length) {
+        final used = result.tags.isEmpty
+            ? 'um gato aleatório'
+            : 'gatos com "${result.tags.join(', ')}"';
+        warning = 'Não há gatos com todas as tags "${tags.join(', ')}". '
+            'Mostrando $used.';
       }
 
       setState(() {
-        _catId = id;
+        _catId = result.id;
+        _activeTags = result.tags;
+        _statusMessage = warning;
         _isLoading = false;
       });
     } catch (e) {
@@ -78,6 +123,45 @@ class GatosScreenState extends State<GatosScreen> {
         _isLoading = false;
         _hasError = true;
       });
+    }
+  }
+
+  /// Tenta todas as tags; se não houver gato, só a primeira; se ainda assim
+  /// não houver, um gato aleatório. Devolve o id e as tags que funcionaram.
+  Future<({String id, List<String> tags})?> _fetchCat(List<String> tags) async {
+    final attempts = <List<String>>[
+      if (tags.isNotEmpty) tags,
+      if (tags.length > 1) [tags.first],
+      <String>[],
+    ];
+
+    for (final attempt in attempts) {
+      final id = await _requestCatId(attempt);
+      if (id != null) return (id: id, tags: attempt);
+    }
+    return null;
+  }
+
+  Future<String?> _requestCatId(List<String> tags) async {
+    try {
+      // Tags com espaço viram %20 (ex.: "big eyes" -> big%20eyes).
+      final path = tags.isEmpty
+          ? _apiUrl
+          : '$_apiUrl/${tags.map(Uri.encodeComponent).join(',')}';
+      // json=true devolve os metadados (incluindo o id) em vez da imagem;
+      // "t" evita cache devolvendo sempre o mesmo gato.
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      final response = await http
+          .get(Uri.parse('$path?json=true&t=$stamp'))
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      final id = data is Map ? (data['id'] ?? data['_id']) : null;
+      return id is String && id.isNotEmpty ? id : null;
+    } catch (e) {
+      debugPrint('Falha ao buscar gato (tags: $tags): $e');
+      return null;
     }
   }
 
@@ -123,6 +207,65 @@ class GatosScreenState extends State<GatosScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Widget _buildWishField() {
+    return TextField(
+      controller: _wishController,
+      textInputAction: TextInputAction.search,
+      onSubmitted: (_) => loadAnotherCat(),
+      decoration: InputDecoration(
+        hintText: 'Ex.: quero gatos brancos e fofinhos',
+        helperText: CatTagService.isConfigured
+            ? null
+            : 'Gemini não configurado: o texto será ignorado.',
+        prefixIcon: const Icon(Icons.auto_awesome_outlined),
+        suffixIcon: IconButton(
+          tooltip: 'Limpar',
+          icon: const Icon(Icons.close),
+          onPressed: () => _wishController.clear(),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatus() {
+    final message = _statusMessage;
+    if (_activeTags.isEmpty && message == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_activeTags.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Tags:', style: TextStyle(fontSize: 13)),
+                for (final tag in _activeTags)
+                  Chip(
+                    label: Text(tag),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          if (message != null)
+            Text(
+              message,
+              style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _buildRetry() {
@@ -185,8 +328,11 @@ class GatosScreenState extends State<GatosScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text('Veja um gato e atualize para encontrar outro.'),
-          const SizedBox(height: 24),
+          const Text('Diga que tipo de gato você quer e toque em "Outro gato".'),
+          const SizedBox(height: 16),
+          _buildWishField(),
+          _buildStatus(),
+          const SizedBox(height: 16),
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
@@ -197,7 +343,7 @@ class GatosScreenState extends State<GatosScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: canSave ? _saveCat : null,
             icon: Icon(
