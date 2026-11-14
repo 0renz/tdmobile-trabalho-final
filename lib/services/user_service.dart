@@ -101,19 +101,52 @@ class UserService {
   /// sorteia um gato diferente a cada requisição).
   static String catImageUrl(String catId) => 'https://cataas.com/cat/$catId';
 
-  /// Guarda apenas o ID do gato no Firestore; a imagem continua hospedada na
-  /// Cataas. O ID é usado como id do documento, então guardar o mesmo gato
-  /// duas vezes não cria duplicatas.
-  Future<void> saveCat(String catId) async {
+  User _requireUser(String action) {
     final user = _auth.currentUser;
     if (user == null) {
-      throw StateError('É necessário estar autenticado para guardar um gato.');
+      throw StateError('É necessário estar autenticado para $action.');
+    }
+    return user;
+  }
+
+  /// Guarda o ID do gato e as tags usadas para encontrá-lo no Firestore; a
+  /// imagem continua hospedada na Cataas. O ID é usado como id do documento,
+  /// então guardar o mesmo gato duas vezes não cria duplicatas: se ele já
+  /// estiver na biblioteca, as tags novas são apenas somadas às existentes
+  /// (sem apagar edições feitas pelo usuário).
+  Future<void> saveCat(String catId, {List<String> tags = const []}) async {
+    final user = _requireUser('guardar um gato');
+    final reference = _savedCats(user.uid).doc(catId);
+
+    final existing = await reference.get();
+    if (existing.exists) {
+      if (tags.isNotEmpty) {
+        await reference.update({'tags': FieldValue.arrayUnion(tags)});
+      }
+      return;
     }
 
-    await _savedCats(user.uid).doc(catId).set({
+    await reference.set({
       'catId': catId,
       'imageUrl': catImageUrl(catId),
+      'tags': tags,
       'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Adiciona uma tag ao gato (arrayUnion ignora tags repetidas).
+  Future<void> addTag(String catId, String tag) async {
+    final user = _requireUser('editar as tags');
+    await _savedCats(user.uid).doc(catId).update({
+      'tags': FieldValue.arrayUnion([tag]),
+    });
+  }
+
+  /// Remove uma tag do gato.
+  Future<void> removeTag(String catId, String tag) async {
+    final user = _requireUser('editar as tags');
+    await _savedCats(user.uid).doc(catId).update({
+      'tags': FieldValue.arrayRemove([tag]),
     });
   }
 

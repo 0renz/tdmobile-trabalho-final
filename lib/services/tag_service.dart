@@ -15,16 +15,12 @@ class TagServiceException implements Exception {
 /// Converte pedidos em linguagem natural (ex.: "quero gatos brancos") em tags
 /// em inglês aceitas pela Cataas, usando a API do Gemini.
 ///
-/// A chave e o modelo são passados na hora de rodar o app, sem ficarem no
-/// código-fonte:
+/// O app usa somente o modelo [_geminiModel]. A chave é passada na hora de
+/// rodar o app, sem ficar no código-fonte:
 ///   flutter run --dart-define=GEMINI_API_KEY=sua_chave
-///   (opcional) --dart-define=GEMINI_MODEL=nome-do-modelo
 class CatTagService {
   static const String _geminiKey = String.fromEnvironment('GEMINI_API_KEY');
-  static const String _geminiModel = String.fromEnvironment(
-    'GEMINI_MODEL',
-    defaultValue: 'gemini-3.5-flash-lite',
-  );
+  static const String _geminiModel = 'gemini-3.5-flash-lite';
 
   static const int maxTags = 2;
   static const int _maxWishLength = 200;
@@ -193,12 +189,11 @@ Examples:
         : null;
     switch (status) {
       case 400:
-        return 'requisição inválida (confira o nome do modelo): ${apiMessage ?? ''}'
-            .trim();
+        return 'requisição inválida: ${apiMessage ?? ''}'.trim();
       case 403:
         return 'chave sem permissão (confira a GEMINI_API_KEY)';
       case 404:
-        return 'modelo não encontrado (confira o GEMINI_MODEL)';
+        return 'modelo $_geminiModel não encontrado';
       case 429:
         return 'limite gratuito do Gemini atingido, tente em instantes';
       default:

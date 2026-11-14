@@ -186,9 +186,11 @@ class GatosScreenState extends State<GatosScreen> {
     if (catId == null || _isSaving || _isSaved) return;
 
     final requestId = _requestId;
+    // As tags que realmente trouxeram este gato vão junto com ele.
+    final tags = List<String>.from(_activeTags);
     setState(() => _isSaving = true);
     try {
-      await UserService().saveCat(catId);
+      await UserService().saveCat(catId, tags: tags);
       if (!mounted) return;
       // Só marca como salvo se o usuário ainda estiver olhando para o mesmo gato.
       if (requestId == _requestId) setState(() => _isSaved = true);
